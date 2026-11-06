@@ -115,7 +115,7 @@ const kpi = (label, value, sub, cls = '') => `<div class="kpi ${cls}"><div class
 
 function splitBar(m, s) {
   if (!(m.potGross > 0)) {
-    const note = s.floored ? `Brak przychodu od gości. Właściciel dostaje tylko minimum umowy (${fmt(s.owner)}), operator dopłaca.` : 'Brak przychodu od gości, nie ma czego dzielić.';
+    const note = s.floored ? `Brak przychodu od gości. Właściciel dostaje tylko minimum z projektu umowy (${fmt(s.owner)}), operator dopłaca wg projektu umowy.` : 'Brak przychodu od gości, nie ma czego dzielić.';
     return `<div class="split" role="img" aria-label="Brak przychodu do podziału"></div><div class="split-legend"><span>${esc(note)}</span></div>`;
   }
   const total = m.potGross;
@@ -125,7 +125,7 @@ function splitBar(m, s) {
   const bar = parts.map(([c, v, l]) => `<span class="seg-${c}" style="width:${Math.max(0, v) / total * 100 / scale}%" title="${esc(l)}: ${fmt(v)}"></span>`).join('');
   const legend = parts.map(([c, v, l]) => `<span><i class="dot-${c}"></i>${esc(l)} ${pct(v / total * 100)}</span>`).join('');
   const notes = [];
-  if (s.operatorKeeps < -0.5) notes.push(s.floored ? 'Operator dopłaca do minimalnego czynszu.' : s.id === 'c1' ? 'Operator dopłaca: przy podstawie brutto VAT od noclegu wypada z jego puli.' : 'Operator dopłaca: podstawa jest ujemna.');
+  if (s.operatorKeeps < -0.5) notes.push(s.floored ? 'Operator dopłaca do minimalnego czynszu wg projektu umowy.' : s.id === 'c1' ? 'Operator dopłaca: przy podstawie brutto VAT od noclegu wypada z jego puli.' : 'Operator dopłaca: podstawa jest ujemna.');
   if (s.owner < -0.5) notes.push('Opłaty przewyższają podstawę, więc kwota dla właściciela jest ujemna.');
   return `<div class="split" role="img" aria-label="Podział przychodu brutto">${bar}</div><div class="split-legend">${legend}</div>${notes.map(n => `<p class="sens-note">${esc(n)}</p>`).join('')}`;
 }

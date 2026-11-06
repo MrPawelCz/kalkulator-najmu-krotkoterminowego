@@ -164,10 +164,10 @@ export function unclear(inp, id = 'c2') {
       value: whatIf(inp, 'c2', {contractPct: 20}) - whatIf(inp, 'c2', {contractPct: 25}), unit: 'zł/mies.',
       note: `Gdyby chodziło o stawkę: 20% zamiast 25%, umowa z podstawą netto. Gdyby o wdrożenie: rabat 20% od pozycji arkusza to jednorazowo ${zl(st.sheetTotal * 0.2)} zł, od całości uruchomienia ${zl(st.totalBeforeDiscount * 0.2)} zł.`},
     {id: 'podstawa', title: 'Podstawa czynszu: brutto czy netto?',
-      says: 'Projekt umowy mówi o przychodach brutto, ale to samo zdanie kończy się słowem „netto”, które może znaczyć koszty bez VAT albo wynik netto. Schemat z maila liczy od kwoty netto.',
+      says: 'Projekt umowy mówi o przychodach brutto, ale przy kosztach portali i operatorów płatności stoi słowo „netto”, które może znaczyć koszty bez VAT albo wynik netto. Schemat z maila liczy od kwoty netto.',
       value: s.c2.owner - s.c1.owner, unit: 'zł/mies.', note: 'Różnica: podstawa netto wobec podstawy brutto.'},
     {id: 'procent', title: 'Udział z umowy: 75% czy 70%?',
-      says: 'Zapis udziału w projekcie umowy jest niespójny: cyfry mówią 75%, słowo w nawiasie 70%.',
+      says: 'Cyfry w projekcie umowy dają 75%, a zapis słowny w nawiasie 70%.',
       value: whatIf(inp, 'c2', {contractPct: inp.contractPct + (word ? -5 : 5)}), unit: 'zł/mies.',
       note: word ? 'Skutek, gdyby obowiązywały cyfry (udział operatora 25%): umowa z podstawą netto.'
         : 'Skutek, gdyby obowiązywało słowo (udział operatora 30%): umowa z podstawą netto.'},

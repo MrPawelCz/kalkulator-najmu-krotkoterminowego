@@ -110,12 +110,12 @@ const base = [
   F('decor', 'start', 'Dekoracje', 'zł', 'money', 'mail', 0, {hint: 'Ustalane indywidualnie z właścicielem, bez ceny w mailu.'}),
   F('startDiscount', 'start', 'Rabat na wdrożenie', '%', 'percent', 'mail', 0, {
     chips: [0, 20],
-    hint: 'Mail wspomina o promocji 20% na wdrożenie lokalu; warunki nie są jasne. Do doprecyzowania: jeśli dotyczy wdrożenia, wpisz 20. Rabat jest liczony od pozycji arkusza, nie od zakupów z opłatą operatora; skutek obu wariantów widać w „Niejasnościach”.'}),
+    hint: 'Mail wspomina o promocji 20% na wdrożenie lokalu; warunki nie są jasne. Do doprecyzowania: jeśli dotyczy wdrożenia, wpisz 20. Założenie kalkulatora: rabat dotyczy pozycji arkusza, a nie zakupów z opłatą 20%; skutek obu wariantów widać w „Niejasnościach”.'}),
   F('amort', 'start', 'Rozłożenie kosztu uruchomienia na', 'mies.', 'int', 'zal', 24, {min: 1, max: 240}),
 
   F('taxOn', 'pod', 'Uwzględnij podatek dochodowy', '', 'check', 'zal', true),
   F('taxPct', 'pod', 'Ryczałt od przychodów z najmu', '%', 'percent', 'zal', 8.5, {
-    hint: 'Art. 12 ust. 1 pkt 4 ustawy o zryczałtowanym podatku dochodowym (tekst z 26.08.2026): 8,5% przychodu do 100 000 zł rocznie i 12,5% od nadwyżki. Kalkulator liczy jedną stawkę; przy przychodzie powyżej progu wpisz średnią.'}),
+    hint: 'Art. 12 ust. 1 pkt 4 ustawy o zryczałtowanym podatku dochodowym (tekst ujednolicony z 26.08.2026): 8,5% przychodu do 100 000 zł rocznie i 12,5% od nadwyżki. Kalkulator liczy jedną stawkę; przy przychodzie powyżej progu wpisz średnią.'}),
   F('taxBase', 'pod', 'Podstawa podatku', '', 'select', 'zal', 'rent', {
     options: [['rent', 'czynsz otrzymany (najem lokalu operatorowi)'], ['nights', 'przychód z noclegów netto, przed prowizjami (jeśli to pośrednictwo)']],
     hint: 'Zależy od modelu prawnego umowy. Do potwierdzenia z doradcą podatkowym.'}),
