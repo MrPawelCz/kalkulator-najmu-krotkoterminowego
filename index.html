@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f3f5f4">
+  <meta name="description" content="Ile zostaje właścicielowi mieszkania przy najmie krótkoterminowym przez operatora. Trzy sposoby liczenia obok siebie, prowizje, VAT, koszty, uruchomienie i podatek. Wszystkie pola można edytować.">
+  <title>Kalkulator czynszu właściciela, najem krótkoterminowy</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="styles.css?v=1.0.0">
+  <script type="module" src="app.js?v=1.0.0"></script>
+</head>
+<body>
+<a class="skip" href="#results">Przejdź do wyniku</a>
+<div class="container">
+  <header>
+    <a class="brand" href="./" aria-label="Kalkulator czynszu, strona główna"><img src="favicon.svg" width="42" height="42" alt=""><span><span class="brand-title">Kalkulator czynszu <span class="badge">najem krótki</span></span><span class="subtitle">Ile zostaje właścicielowi: najem i podnajem przez operatora</span></span></a>
+    <nav aria-label="Narzędzia kalkulatora"><button id="example">Przykład z maila</button><button id="share">Udostępnij</button><button id="save">Zapisz na urządzeniu</button><button id="print">PDF / drukuj</button><button id="reset" class="quiet">Przywróć dane lokalu</button></nav>
+  </header>
+  <div id="status-toast" class="status-toast" hidden><p id="status" class="status" role="status" aria-atomic="true"></p><button id="status-dismiss" aria-label="Zamknij komunikat">×</button></div>
+  <div class="mobile-results" aria-label="Szybki dostęp do wyniku"><span id="mobile-summary"></span><a href="#results">Wynik <span aria-hidden="true">↓</span></a></div>
+  <main class="workspace">
+    <section id="inputs" class="inputs panel" aria-labelledby="inputs-heading" tabindex="-1">
+      <div class="section-head"><h1 id="inputs-heading">Dane lokalu</h1><span class="subtle">Wszystkie pola można zmienić</span></div>
+      <p class="intro">Wybierz lokal, aby wczytać przykładowe dane. Kwoty z maila operatora, projektu umowy i arkusza uruchomienia mają znacznik źródła, reszta to założenia do poprawienia.</p>
+      <div id="errors" role="alert" tabindex="-1" hidden></div>
+      <div class="segmented lokal-switch" role="group" aria-label="Lokal" id="lokal-switch"></div>
+      <p class="hint" id="lokal-desc"></p>
+      <div id="form"></div>
+    </section>
+    <section id="results" class="results" aria-labelledby="results-heading" tabindex="-1">
+      <h2 id="results-heading" class="sr-only">Wynik</h2>
+      <div id="hero" class="panel result-top"></div>
+      <div id="comparison" class="comparison"></div>
+      <div id="reservation" class="panel"></div>
+      <div id="waterfall" class="panel"></div>
+      <div id="unclear" class="panel"></div>
+      <details class="panel methodology" id="method">
+        <summary><span>Jak liczone są kwoty i czego nie wiadomo</span><span class="badge">założenia</span></summary>
+        <div class="method-grid">
+          <div><h3>Trzy sposoby liczenia</h3>
+            <p><strong>Schemat z maila operatora.</strong> Kwota netto (bez VAT od noclegu) minus prowizja portalu daje podstawę. Od podstawy operator odejmuje własną prowizję, reszta trafia do właściciela. Przykład z maila: 100 zł brutto, VAT 8%, portal 15%, operator 10% daje 69,83 zł przy rezerwacji z portalu i 83,33 zł przy sprzedaży bezpośredniej.</p>
+            <p><strong>Umowa z podstawą brutto.</strong> Czynsz właściciela to udział z projektu umowy (domyślnie 75%) liczony od przychodu brutto z VAT, pomniejszonego o prowizje i opłaty portali oraz operatorów płatności, nie mniej niż minimalny czynsz miesięczny.</p>
+            <p><strong>Umowa z podstawą netto.</strong> To samo, ale od kwoty netto, tak jak w schemacie z maila.</p></div>
+          <div><h3>Co zostaje u kogo</h3>
+            <p>Z każdych 100 zł zapłaconych przez gościa część to VAT od noclegu, część prowizja portalu zewnętrznego, część zostaje u operatora, reszta trafia do właściciela. Suma zawsze wynosi 100 zł, co kalkulator sprawdza w testach.</p>
+            <p>Opłata za sprzątanie od gości zostaje u operatora i domyślnie nie wchodzi do podstawy. Jest pokazywana informacyjnie, a w ustawieniach można włączyć jej wliczenie.</p></div>
+          <div><h3>Czego nie wiadomo</h3>
+            <p>Karta „Niejasności” zbiera różnice między mailem a projektem umowy wraz z ich skutkiem w złotych. To lista pytań do operatora, a nie rozstrzygnięcie. Wartości z założeń (ceny, obłożenie, koszty, stawki gminne) są przykładowe i nie są prognozą.</p>
+            <p>Podatek od nieruchomości, podatek dochodowy i VAT wymagają potwierdzenia z doradcą podatkowym. Narzędzie pomocnicze, nie porada prawna ani podatkowa.</p></div>
+          <div><h3>Dane i prywatność</h3>
+            <p>Obliczenia działają w przeglądarce. Dane zostają na urządzeniu, a „Zapisz na urządzeniu” używa pamięci przeglądarki. Link z przycisku „Udostępnij” zawiera dane w części po znaku #, która nie jest wysyłana do serwera.</p></div>
+        </div>
+      </details>
+    </section>
+  </main>
+  <dialog id="share-dialog" aria-labelledby="share-title">
+    <h2 id="share-title">Udostępnij scenariusz</h2>
+    <p id="share-description">Link odtwarza wszystkie wpisane wartości. Dane są w części po znaku #, nie trafiają na serwer.</p>
+    <textarea id="share-link" rows="4" readonly aria-label="Link do scenariusza"></textarea>
+    <div class="share-actions"><button id="share-copy" class="primary">Kopiuj link</button><button id="share-close">Zamknij</button></div>
+    <p id="share-status" role="status"></p>
+  </dialog>
+  <footer><span>Kalkulator czynszu właściciela przy najmie krótkoterminowym. Dane przykładowe, wynik orientacyjny.</span></footer>
+</div>
+</body>
+</html>
