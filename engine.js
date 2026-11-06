@@ -28,9 +28,10 @@ export function reservation(inp, gross = inp.resGross) {
     const fees = r2(feeOta + feePay + feeOwn);
     const scen = {};
     const finish = (id, base, owner, operatorFee) => {
-      const keeps = r2(net - feeOta - feePay - owner);
-      scen[id] = {id, base, owner, operatorFee, operatorKeeps: keeps,
-        identity: r2(vat + feeOta + feePay + keeps + owner - gross)};
+      // Udział operatora wprost z jego pozycji; przy podstawie brutto VAT wypada z jego puli.
+      const share = r2(operatorFee + feeOwn - (id === 'c1' ? vat : 0));
+      scen[id] = {id, base, owner, operatorFee, operatorKeeps: share,
+        identity: r2(vat + feeOta + feePay + share + owner - gross)};
     };
     {
       const base = r2(net - fees), fee = r2(p(inp.mailPct) * base);
@@ -67,19 +68,20 @@ export function monthly(inp) {
     let base, owner, floored = false;
     if (id === 'mail') {
       base = potNet - fees;
-      owner = Math.max(0, base * (1 - p(inp.mailPct)));
+      owner = base * (1 - p(inp.mailPct));
     } else {
       base = (id === 'c1' ? potGross : potNet) - fees;
       const raw = base * (1 - p(inp.contractPct));
       owner = Math.max(inp.minRent, raw);
       floored = raw < inp.minRent;
     }
-    const keeps = potNet - feeOta - feePay - owner;
+    const operatorFee = base - owner;
+    const share = operatorFee + feeOwn - (id === 'c1' ? potVat : 0);
     scenarios[id] = {
-      id, base, owner, operatorFee: base - owner, operatorKeeps: keeps, floored,
-      ownerShareOfNights: gross > 0 ? owner / gross : 0,
+      id, base, owner, operatorFee, operatorKeeps: share, floored,
+      ownerShare: potGross > 0 ? owner / potGross : 0,
       rentVat: inp.vatPayer ? owner * p(inp.rentVat) : 0,
-      identity: potGross - (potVat + feeOta + feePay + keeps + owner),
+      identity: potGross - (potVat + feeOta + feePay + share + owner),
     };
     scenarios[id].rentGross = owner + scenarios[id].rentVat;
   }
@@ -110,9 +112,10 @@ export function startup(inp) {
   const discount = sheetTotal * p(inp.startDiscount);
   const purchases = inp.kitchen + inp.decor;
   const purchaseFee = purchases * p(inp.buyFee);
-  const total = sheetTotal - discount + purchases + purchaseFee;
+  const totalBeforeDiscount = sheetTotal + purchases + purchaseFee;
+  const total = totalBeforeDiscount - discount;
   const months = Math.max(1, inp.amort);
-  return {lines, sheetTotal, discount, purchases, purchaseFee, total, months, perMonth: total / months};
+  return {lines, sheetTotal, discount, purchases, purchaseFee, total, totalBeforeDiscount, months, perMonth: total / months};
 }
 
 /** Wynik właściciela w scenariuszu: koszty, uruchomienie, podatek, porównanie z najmem długim. */
@@ -143,12 +146,15 @@ export function breakEvenOccupancy(inp, id) {
 
 export const whatIf = (inp, id, patch) => monthly({...inp, ...patch}).scenarios[id].owner - monthly(inp).scenarios[id].owner;
 
-/** Niejasności do wyjaśnienia z operatorem i ich wpływ na kwotę dla właściciela (zł/mies.). */
+/** Niejasności do wyjaśnienia z operatorem i ich wpływ na kwotę dla właściciela (zł/mies.).
+ *  Cztery pierwsze pozycje porównują sposoby liczenia i nie zależą od wybranego sposobu (id). */
 export function unclear(inp, id = 'c2') {
   const m = monthly(inp), s = m.scenarios;
   const st = startup(inp), c = costs(inp);
-  const taxNights = result({...inp, taxBase: 'nights'}, id, m).tax - result(inp, id, m).tax;
-  const pctKey = id === 'mail' ? 'mailPct' : 'contractPct';
+  const zl = x => String(r2(x)).replace('.', ',');
+  const otherTaxBase = inp.taxBase === 'nights' ? 'rent' : 'nights';
+  const taxSwitch = result(inp, id, m).tax - result({...inp, taxBase: otherTaxBase}, id, m).tax;
+  const word = inp.contractPct === 30;
   return [
     {id: 'stawka', title: 'Prowizja operatora: 10%, 20% czy 25%?',
       says: 'Przykład z maila liczy 10%, tekst maila 20 do 25%, projekt umowy 25%.',
@@ -156,10 +162,15 @@ export function unclear(inp, id = 'c2') {
     {id: 'promocja', title: 'Czego dotyczy promocja 20%?',
       says: 'Mail wspomina o promocji 20% na wdrożenie lokalu; warunki nie są jasne. Stawka czy rabat na wdrożenie?',
       value: whatIf(inp, 'c2', {contractPct: 20}) - whatIf(inp, 'c2', {contractPct: 25}), unit: 'zł/mies.',
-      note: `Gdyby chodziło o stawkę: 20% zamiast 25%. Gdyby o wdrożenie: rabat 20% to jednorazowo ${r2(st.sheetTotal * 0.2)} zł.`},
+      note: `Gdyby chodziło o stawkę: 20% zamiast 25%, umowa z podstawą netto. Gdyby o wdrożenie: rabat 20% od pozycji arkusza to jednorazowo ${zl(st.sheetTotal * 0.2)} zł, od całości uruchomienia ${zl(st.totalBeforeDiscount * 0.2)} zł.`},
     {id: 'podstawa', title: 'Podstawa czynszu: brutto czy netto?',
-      says: 'Projekt umowy mówi o przychodach brutto, schemat z maila liczy od kwoty netto.',
+      says: 'Projekt umowy mówi o przychodach brutto, ale to samo zdanie kończy się słowem „netto”, które może znaczyć koszty bez VAT albo wynik netto. Schemat z maila liczy od kwoty netto.',
       value: s.c2.owner - s.c1.owner, unit: 'zł/mies.', note: 'Różnica: podstawa netto wobec podstawy brutto.'},
+    {id: 'procent', title: 'Udział z umowy: 75% czy 70%?',
+      says: 'Zapis udziału w projekcie umowy jest niespójny: cyfry mówią 75%, słowo w nawiasie 70%.',
+      value: whatIf(inp, 'c2', {contractPct: inp.contractPct + (word ? -5 : 5)}), unit: 'zł/mies.',
+      note: word ? 'Skutek, gdyby obowiązywały cyfry (udział operatora 25%): umowa z podstawą netto.'
+        : 'Skutek, gdyby obowiązywało słowo (udział operatora 30%): umowa z podstawą netto.'},
     {id: 'portal', title: 'Opłata własnego portalu operatora',
       says: 'Projekt umowy ją przewiduje i liczy jak prowizję portalu, przykład z maila sprzedaży bezpośredniej jej nie ma.',
       value: whatIf(inp, id, {ownPct: inp.ownPct + 5}), unit: 'zł/mies.', note: 'Skutek każdych 5 punktów procentowych opłaty od kwoty brutto sprzedaży bezpośredniej.'},
@@ -168,7 +179,7 @@ export function unclear(inp, id = 'c2') {
       value: whatIf(inp, id, {otaBase: inp.otaBase === 'gross' ? 'net' : 'gross'}), unit: 'zł/mies.', note: 'Skutek zmiany podstawy prowizji portalu.'},
     {id: 'platnosci', title: 'Opłaty operatorów płatności',
       says: 'Projekt umowy je wymienia, mail ich nie podaje.',
-      value: whatIf(inp, id, {payPct: inp.payPct + 1.5}), unit: 'zł/mies.', note: 'Skutek opłat płatniczych 1,5% od kwoty brutto.'},
+      value: whatIf(inp, id, {payPct: inp.payPct + 1.5}), unit: 'zł/mies.', note: 'Skutek opłat płatniczych, np. 1,5% od kwoty brutto.'},
     {id: 'sprzatanie', title: 'Opłata za sprzątanie: w podstawie czy poza?',
       says: 'Projekt umowy: poza podstawą czynszu, zostaje u operatora. Mail tego nie podaje.',
       value: whatIf(inp, id, {cleanInBase: !inp.cleanInBase}), unit: 'zł/mies.', note: 'Skutek zmiany: opłata za sprzątanie od gości wchodzi do podstawy.'},
@@ -178,15 +189,18 @@ export function unclear(inp, id = 'c2') {
       note: 'Dotyczy właściciela będącego płatnikiem VAT: gdyby kwota czynszu zawierała już VAT, tyle zostałoby po jego odprowadzeniu mniej.'},
     {id: 'model', title: 'Model prawny: najem czy pośrednictwo?',
       says: 'Projekt umowy to najem i podnajem z czynszem, mail mówi o prowizji i kwocie dla właściciela.',
-      value: -taxNights, unit: 'zł/mies.', note: 'Dodatkowy ryczałt, gdyby podstawą był przychód z noclegów netto, a nie czynsz.'},
+      value: taxSwitch, unit: 'zł/mies.',
+      note: inp.taxBase === 'nights' ? 'Mniej ryczałtu, gdyby podstawą był czynsz, a nie przychód z noclegów netto.'
+        : 'Dodatkowy ryczałt, gdyby podstawą był przychód z noclegów netto, a nie czynsz.'},
     {id: 'nieruchomosc', title: 'Podatek od nieruchomości: stawka mieszkalna czy dla działalności?',
       says: 'Zależy od kwalifikacji lokalu przez urząd gminy.',
-      value: -c.propTaxExtra, unit: 'zł/mies.', note: 'Dodatkowy podatek, gdyby urząd zastosował stawkę dla działalności.'},
+      value: inp.taxBizOn ? c.propTaxExtra : -c.propTaxExtra, unit: 'zł/mies.',
+      note: inp.taxBizOn ? 'Mniej podatku, gdyby urząd zastosował stawkę mieszkalną.' : 'Dodatkowy podatek, gdyby urząd zastosował stawkę dla działalności.'},
     {id: 'uruchomienie', title: 'Koszt uruchomienia: stała kwota, rabat, opłata 20%',
       says: 'Arkusz podaje 4030 zł dla 4 osób i 2 łóżek, zakupy ok. 2 tys. zł plus opłata 20% poza umową.',
       value: -st.total, unit: 'zł jednorazowo', note: `Razem: pozycje arkusza ${r2(st.sheetTotal)} zł plus zakupy z opłatą ${r2(st.purchases + st.purchaseFee)} zł.`},
-    {id: 'minimum', title: 'Minimalny czynsz 1 zł',
-      says: 'Projekt umowy przewiduje minimalny czynsz 1 zł miesięcznie. Przy braku pobytów koszty lokalu pozostają po stronie właściciela.',
+    {id: 'minimum', title: `Minimalny czynsz ${zl(inp.minRent)} zł`,
+      says: `Projekt umowy przewiduje minimalny czynsz 1 zł miesięcznie${r2(inp.minRent) === 1 ? '' : `, w formularzu wpisano ${zl(inp.minRent)} zł`}. Przy braku pobytów koszty lokalu pozostają po stronie właściciela.`,
       value: -c.total, unit: 'zł/mies.', note: 'Stałe koszty właściciela przy zerowym obłożeniu.'},
   ];
 }

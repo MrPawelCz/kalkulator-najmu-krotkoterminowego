@@ -10,9 +10,10 @@ const minus = text => text.replace('-', '\u2212');
 const fmt = n => Number.isFinite(n) ? minus(money0.format(Math.round(n))) : 'n/d';
 const fmt2 = n => Number.isFinite(n) ? minus(money2.format(n)) : 'n/d';
 const signed = n => (n > 0.5 ? '+' : n < -0.5 ? '−' : '') + fmt(Math.abs(n));
-const pct = n => `${(Math.round(n * 10) / 10).toString().replace('.', ',')}%`;
-const inputValue = n => Number.isFinite(n) ? String(Math.round((n + Number.EPSILON) * 100) / 100).replace('.', ',') : '';
-const parseNum = s => { const t = String(s).trim().replace(/\s/g, '').replace(',', '.'); return t === '' ? NaN : Number(t); };
+const pct = n => `${(Math.round(n * 10) / 10).toString().replace('.', ',').replace('-', '\u2212')}%`;
+const inputValue = n => Number.isFinite(n) ? String(n).replace('.', ',') : '';
+// Tylko zwykły zapis dziesiętny: bez notacji naukowej, szesnastkowej i dwójkowej, które zna Number().
+const parseNum = s => { const t = String(s).trim().replace(/\s/g, '').replace(',', '.'); return /^-?(\d+(\.\d*)?|\.\d+)$/.test(t) ? Number(t) : NaN; };
 const STORAGE = 'kalkulator-najmu-krotkiego-v1';
 
 const fresh = lokal => ({lokal: String(lokal), scenario: 'c2', period: 'month', inp: defaultsFor(lokal)});
@@ -113,11 +114,20 @@ function fieldValidation(errors) {
 const kpi = (label, value, sub, cls = '') => `<div class="kpi ${cls}"><div class="label">${esc(label)}</div><div class="value">${value}</div><div class="sub">${sub}</div></div>`;
 
 function splitBar(m, s) {
-  const total = m.potGross || 1;
-  const parts = [['vat', m.potVat, 'VAT od noclegu'], ['portal', m.feeOta + m.feePay, 'Portale i płatności'], ['op', Math.max(0, s.operatorKeeps), 'Operator'], ['owner', s.owner, 'Właściciel']];
-  const bar = parts.map(([c, v, l]) => `<span class="seg-${c}" style="width:${Math.max(0, v / total * 100)}%" title="${esc(l)}: ${fmt(v)}"></span>`).join('');
+  if (!(m.potGross > 0)) {
+    const note = s.floored ? `Brak przychodu od gości. Właściciel dostaje tylko minimum umowy (${fmt(s.owner)}), operator dopłaca.` : 'Brak przychodu od gości, nie ma czego dzielić.';
+    return `<div class="split" role="img" aria-label="Brak przychodu do podziału"></div><div class="split-legend"><span>${esc(note)}</span></div>`;
+  }
+  const total = m.potGross;
+  const parts = [['vat', m.potVat, 'VAT od noclegu'], ['portal', m.feeOta + m.feePay, 'Portale i płatności'], ['op', s.operatorKeeps, 'Operator'], ['owner', s.owner, 'Właściciel']];
+  // Pasek rysuje tylko części dodatnie; gdy któraś jest ujemna, reszta jest skalowana, by pasek się nie przepełnił. Legenda zostaje prawdziwa.
+  const scale = Math.max(1, parts.reduce((acc, [, v]) => acc + Math.max(0, v), 0) / total);
+  const bar = parts.map(([c, v, l]) => `<span class="seg-${c}" style="width:${Math.max(0, v) / total * 100 / scale}%" title="${esc(l)}: ${fmt(v)}"></span>`).join('');
   const legend = parts.map(([c, v, l]) => `<span><i class="dot-${c}"></i>${esc(l)} ${pct(v / total * 100)}</span>`).join('');
-  return `<div class="split" role="img" aria-label="Podział przychodu brutto">${bar}</div><div class="split-legend">${legend}</div>`;
+  const notes = [];
+  if (s.operatorKeeps < -0.5) notes.push(s.floored ? 'Operator dopłaca do minimalnego czynszu.' : s.id === 'c1' ? 'Operator dopłaca: przy podstawie brutto VAT od noclegu wypada z jego puli.' : 'Operator dopłaca: podstawa jest ujemna.');
+  if (s.owner < -0.5) notes.push('Opłaty przewyższają podstawę, więc kwota dla właściciela jest ujemna.');
+  return `<div class="split" role="img" aria-label="Podział przychodu brutto">${bar}</div><div class="split-legend">${legend}</div>${notes.map(n => `<p class="sens-note">${esc(n)}</p>`).join('')}`;
 }
 
 function dlRows(rows) {
@@ -126,17 +136,17 @@ function dlRows(rows) {
 
 function stepRows(id, m, s, inp) {
   const rows = [];
-  const minus = v => v === 0 ? fmt(0) : `−${fmt(v)}`;
+  const minus = v => { const r = Math.round(v); return r > 0 ? `−${fmt(r)}` : r < 0 ? `+${fmt(-r)}` : fmt(0); };
+  const feeText = id === 'mail' ? `Prowizja operatora ${pct(inp.mailPct)}` : `Udział operatora ${pct(inp.contractPct)}`;
+  const feeLabel = s.operatorFee < -0.5 ? (s.floored ? 'Operator dopłaca do minimum umowy' : `${feeText}, od ujemnej podstawy`) : feeText;
   if (id === 'c1') {
     rows.push(['Przychód brutto z VAT', fmt(m.potGross)], ['Prowizje portali i opłaty', minus(m.fees)], ['Podstawa (z VAT)', fmt(s.base)],
-      [`Udział operatora ${pct(inp.contractPct)}`, minus(s.operatorFee)], [s.floored ? 'Czynsz (minimum umowy)' : 'Czynsz dla właściciela', fmt(s.owner), 'strong'],
+      [feeLabel, minus(s.operatorFee)], [s.floored ? 'Czynsz (minimum umowy)' : 'Czynsz dla właściciela', fmt(s.owner), 'strong'],
       ['VAT od noclegu do odprowadzenia z puli operatora', fmt(m.potVat), 'muted']);
   } else {
     rows.push(['Przychód brutto z VAT', fmt(m.potGross)], ['VAT od noclegu', minus(m.potVat)], ['Przychód netto', fmt(m.potNet)],
       ['Prowizje portali i opłaty', minus(m.fees)], ['Podstawa', fmt(s.base)]);
-    rows.push(id === 'mail'
-      ? [`Prowizja operatora ${pct(inp.mailPct)}`, minus(s.operatorFee)]
-      : [`Udział operatora ${pct(inp.contractPct)}`, minus(s.operatorFee)]);
+    rows.push([feeLabel, minus(s.operatorFee)]);
     rows.push([id === 'mail' ? 'Kwota dla właściciela' : (s.floored ? 'Czynsz (minimum umowy)' : 'Czynsz dla właściciela'), fmt(s.owner), 'strong']);
   }
   rows.push(['Zostaje u operatora, po portalach', fmt(s.operatorKeeps), 'muted']);
@@ -151,18 +161,18 @@ function renderHero(inp, m, res, d, unit) {
   const c = costs(inp), st = startup(inp);
   const periodButtons = `<div class="segmented" role="group" aria-label="Okres kwot"><button data-period="month" aria-pressed="${state.period === 'month'}">Miesięcznie</button><button data-period="year" aria-pressed="${state.period === 'year'}">Rocznie</button></div>`;
   const scenButtons = `<div class="segmented lokal-switch" role="group" aria-label="Sposób liczenia">${SCENARIO_IDS.map(id => `<button data-scenario="${id}" aria-pressed="${id === state.scenario}">${esc(SCENARIOS[id].short)}</button>`).join('')}</div>`;
-  const delta = s.afterTax;
+  const afterTax = s.afterTax;
   $('hero').innerHTML = `<div class="section-head"><h2>Wynik dla właściciela: ${esc(LOKALE[state.lokal].label)}</h2>${periodButtons}</div>
     ${scenButtons}
     <div class="recommendation"><div class="recommend-label">${esc(sc.name)}</div><strong>${fmt(s.owner * d)} ${unit}</strong>
-      <p>${esc(sc.rule)} To ${pct(m.scenarios[state.scenario].ownerShareOfNights * 100)} kwoty brutto zapłaconej przez gości za noclegi (${fmt(m.gross * d)} ${unit}).</p></div>
+      <p>${esc(sc.rule)} To ${pct(m.scenarios[state.scenario].ownerShare * 100)} kwoty brutto zapłaconej przez gości za ${inp.cleanInBase ? 'noclegi i sprzątanie' : 'noclegi'} (${fmt(m.potGross * d)} ${unit}).</p></div>
     <div class="kpis">
       ${kpi('Koszty właściciela', fmt(c.total * d), `w tym podatek od nieruchomości ${fmt(c.items.find(i => i.id === 'proptax').amount * d)}`)}
       ${kpi('Uruchomienie, rozłożone', fmt(st.perMonth * d), `razem ${fmt(st.total)} na ${st.months} mies.`)}
       ${kpi('Podatek dochodowy', fmt(s.tax * d), inp.taxOn ? `ryczałt ${pct(inp.taxPct)}` : 'wyłączony')}
-      ${kpi('Wynik po kosztach i podatku', fmt(res[state.scenario].afterTax * d), 'po uruchomieniu i ryczałcie', delta > 0 ? 'good' : '')}
-      ${kpi('Najem długoterminowy po podatku', fmt(res[state.scenario].longNet * d), `krótki wobec długiego: ${signed(res[state.scenario].vsLong * d)}`)}
-      ${kpi('Obłożenie progowe', be === null ? 'brak' : pct(be), be === null ? 'nawet 100% nie pokrywa kosztów' : 'wynik przed podatkiem równy zero')}
+      ${kpi('Wynik po kosztach i podatku', fmt(res[state.scenario].afterTax * d), 'po uruchomieniu i ryczałcie', afterTax > 0 ? 'good' : '')}
+      ${kpi('Najem długoterminowy po kosztach i podatku', fmt(res[state.scenario].longNet * d), `krótki wobec długiego: ${signed(res[state.scenario].vsLong * d)}`)}
+      ${kpi('Obłożenie progowe', be === null ? 'brak' : pct(be), be === null ? 'nawet 100% nie pokrywa kosztów' : 'wynik po uruchomieniu i przed podatkiem równy zero')}
     </div>
     <p class="hero-note">Kwoty miesięczne to średnia z roku. Dane domyślne są przykładowe, nie są prognozą. Źródło każdego pola jest oznaczone przy etykiecie.</p>`;
   $('mobile-summary').textContent = `Właściciel: ${fmt(s.owner * d)} ${unit} (${sc.short})`;
@@ -178,7 +188,7 @@ function renderComparison(inp, m, res, d, unit) {
       <div class="net-label">Dla właściciela</div><div class="net-value">${fmt(s.owner * d)}</div><div class="net-unit">${unit}</div>
       ${isBest ? '<span class="winner">Najwięcej dla właściciela</span>' : `<p class="difference">${signed((s.owner - best) * d)} wobec najwyższej</p>`}
       ${splitBar(m, s)}
-      <div class="card-burden"><span>Udział w płatnościach gości</span><strong>${pct(s.ownerShareOfNights * 100)}</strong></div>
+      <div class="card-burden"><span>Udział w płatnościach gości</span><strong>${pct(s.ownerShare * 100)}</strong></div>
       <details class="scen-detail" id="detail-${id}"><summary>Rozbicie krok po kroku</summary>${dlRows(stepRows(id, m, s, inp).map(([l, v, c]) => [l, v, c]))}</details></article>`;
   }).join('');
 }
@@ -187,8 +197,14 @@ function reservationTable(r, ch, title, inp) {
   const c = r.channels[ch], ids = SCENARIO_IDS;
   const cell = (id, fn) => `<td>${fn(c.scen[id], id)}</td>`;
   const row = (label, fn, cls = '') => `<tr class="${cls}"><td>${esc(label)}</td>${ids.map(id => cell(id, fn)).join('')}</tr>`;
-  const neg = v => v === 0 ? fmt2(0) : `−${fmt2(v)}`;
+  const neg = v => { const cents = Math.round(v * 100); return cents > 0 ? `−${fmt2(v)}` : cents < 0 ? `+${fmt2(-v)}` : fmt2(0); };
   const check = ids.every(id => Math.abs(c.scen[id].identity) < 1e-9);
+  const names = list => list.map(id => SCENARIOS[id].short).join(', ');
+  const lowOwner = ids.filter(id => c.scen[id].owner < 0), lowOperator = ids.filter(id => c.scen[id].operatorKeeps < 0);
+  const warn = [
+    lowOwner.length ? `Opłaty przewyższają podstawę, więc kwota dla właściciela jest ujemna (${names(lowOwner)}).` : '',
+    lowOperator.length ? `Operator dopłaca, gdy pozycja „Zostaje u operatora” jest ujemna (${names(lowOperator)}).` : '',
+  ].filter(Boolean).map(t => `<p class="sens-note">${esc(t)}</p>`).join('');
   return `<h3 class="sub-heading">${esc(title)}</h3><div class="table-scroll"><table class="res-table"><thead><tr><th></th>${ids.map(id => `<th>${esc(SCENARIOS[id].short)}</th>`).join('')}</tr></thead><tbody>
     ${row('Kwota brutto od gościa', () => fmt2(r.gross))}
     ${row('VAT od noclegu', (s, id) => id === 'c1' ? '<span class="minus">nie odejmowany</span>' : neg(r.vat))}
@@ -201,7 +217,8 @@ function reservationTable(r, ch, title, inp) {
     ${row('Kwota dla właściciela', s => fmt2(s.owner), 'total')}
     ${row('Zostaje u operatora, po portalach', s => fmt2(s.operatorKeeps), 'muted')}
     </tbody></table></div>
-    <p class="res-check">Kontrola: VAT, portale, operator i właściciel razem dają kwotę brutto <span class="${check ? 'ok' : 'bad'}">${check ? 'zgodnie' : 'niezgodnie'}</span>.</p>`;
+    ${warn}
+    <p class="res-check">Kontrola: VAT, portale, udział operatora (liczony wprost z jego pozycji) i właściciel razem dają kwotę brutto <span class="${check ? 'ok' : 'bad'}">${check ? 'zgodnie' : 'niezgodnie'}</span>.</p>`;
 }
 
 function renderReservation(inp) {
@@ -241,7 +258,7 @@ function renderWaterfall(inp, m, res) {
 function renderUnclear(inp) {
   const list = unclear(inp, state.scenario);
   $('unclear').innerHTML = `<div class="section-head"><h2>Niejasności i ich wpływ</h2><span class="subtle">pytania do operatora</span></div>
-    <p class="hint">Mail i projekt umowy różnią się w kilku miejscach. Przy każdej pozycji widać, ile zmienia się kwota dla właściciela (dla wybranego sposobu liczenia), gdyby rozstrzygnięto ją inaczej.</p>
+    <p class="hint">Mail i projekt umowy różnią się w kilku miejscach. Przy każdej pozycji widać, ile zmienia się kwota dla właściciela, gdyby rozstrzygnięto ją inaczej. Cztery pierwsze pozycje porównują sposoby liczenia, pozostałe są liczone dla wybranego sposobu.</p>
     <div class="unclear-list">${list.map(u => {
       const once = u.unit.includes('jednorazowo');
       const v = once ? fmt(u.value) : `${signed(u.value)} / mies.`;

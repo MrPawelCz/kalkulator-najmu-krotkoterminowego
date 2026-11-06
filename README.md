@@ -12,7 +12,7 @@ Kalkulator pokazuje, ile zostaje właścicielowi mieszkania, gdy lokal wynajmuje
 
 - Dwa lokale z przykładowymi danymi (nr 13 i nr 42, bez adresu). Wszystkie pola można zmienić.
 - Pojedyncza rezerwacja krok po kroku, z zaokrągleniem do grosza po każdym kroku. Odtwarza przykład z maila: 100 zł brutto daje 69,83 zł przy rezerwacji z portalu i 83,33 zł przy sprzedaży bezpośredniej.
-- Podział przychodu na VAT od noclegu, portale, operatora i właściciela z kontrolą sumy.
+- Podział przychodu na VAT od noclegu, portale, operatora i właściciela z kontrolą zgodności sumy (udział operatora liczony wprost i porównywany z resztą).
 - VAT od noclegu i od czynszu, prowizje portali, opłaty płatnicze, opłata własnego portalu operatora, opłata za sprzątanie, minimalny czynsz.
 - Koszty właściciela, podatek od nieruchomości (stawka mieszkalna i dla działalności), uruchomienie lokalu (ilość razy cena), ryczałt, porównanie z najmem długoterminowym i obłożenie progowe.
 - Lista niejasności z wpływem w złotych na kwotę dla właściciela.

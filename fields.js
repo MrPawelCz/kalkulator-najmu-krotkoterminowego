@@ -50,13 +50,13 @@ const base = [
     {hint: 'Rezerwacje przez własny portal operatora, bez portalu zewnętrznego.'}),
 
   F('vatNights', 'vat', 'VAT od noclegu', '%', 'percent', 'mail', 8,
-    {hint: 'Mail: miejsce noclegowe ze stawką VAT 8%. VAT płaci gość i odprowadza operator, nie jest przychodem właściciela.'}),
+    {hint: 'Mail: miejsce noclegowe ze stawką VAT 8%. VAT płaci gość. Przy najmie i podnajmie odprowadza go operator i nie jest przychodem właściciela (do potwierdzenia, zob. „Model prawny” w niejasnościach).'}),
   F('cleanFee', 'vat', 'Opłata za sprzątanie od gościa (brutto, za pobyt)', 'zł', 'money', 'umowa', 180,
-    {hint: 'Stawka operatora dla gości wg projektu umowy. Zostaje u operatora i jest poza podstawą czynszu. Pokazana informacyjnie.'}),
+    {hint: 'Stawka operatora dla gości wg projektu umowy. Zostaje u operatora i jest poza podstawą czynszu. Pokazana informacyjnie. Projekt umowy podaje samą kwotę, a „brutto” i „za pobyt” to założenie.'}),
   F('vatClean', 'vat', 'VAT od opłaty za sprzątanie', '%', 'percent', 'zal', 8,
     {hint: 'Do potwierdzenia, czy jak za nocleg. Ma znaczenie tylko przy włączeniu opłaty do podstawy.'}),
   F('cleanInBase', 'vat', 'Wlicz opłatę za sprzątanie do podstawy czynszu', '', 'check', 'umowa', false,
-    {hint: 'Wg projektu umowy opłaty za sprzątanie nie wchodzą do podstawy. Zaznacz, aby zobaczyć skutek, gdyby było inaczej.'}),
+    {hint: 'Wg projektu umowy opłaty za sprzątanie nie wchodzą do podstawy. Zaznacz, aby zobaczyć skutek, gdyby było inaczej. Założenie: portal nie pobiera prowizji od tej opłaty.'}),
 
   F('otaPct', 'prow', 'Prowizja portalu zewnętrznego', '%', 'percent', 'mail', 15),
   F('otaBase', 'prow', 'Od czego liczona jest prowizja portalu', '', 'select', 'mail', 'gross', {
@@ -65,7 +65,7 @@ const base = [
   F('payPct', 'prow', 'Opłaty operatorów płatności', '% brutto', 'percent', 'umowa', 0,
     {hint: 'Projekt umowy wymienia opłaty operatorów płatności, mail ich nie ma. Domyślnie 0.'}),
   F('ownPct', 'prow', 'Opłata własnego portalu operatora (sprzedaż bezpośrednia)', '% brutto', 'percent', 'umowa', 0,
-    {hint: 'Projekt umowy: przy rezerwacjach przez portal operatora pobiera on oddzielne wynagrodzenie, liczone jak prowizja portalu. Wysokość nieznana, w przykładzie z maila jej nie ma.'}),
+    {hint: 'Projekt umowy: przy rezerwacjach przez portal operatora pobiera on oddzielne wynagrodzenie, liczone jak prowizja portalu. Wysokość i forma (procent czy kwota) nie są znane, w przykładzie z maila opłaty nie ma.'}),
 
   F('mailPct', 'scen', 'Prowizja operatora wg przykładu z maila', '%', 'percent', 'mail', 10, {
     hint: 'Przykład z maila: 10% prowizji dla zarządcy, liczone od podstawy po odjęciu prowizji portalu. Mail nie wyjaśnia, jak to się ma do 20 do 25%.'}),
@@ -99,7 +99,7 @@ const base = [
   F('ownerClean', 'koszty', 'Sprzątanie po pobycie własnym', 'zł', 'money', 'umowa', 180),
 
   F('persons', 'start', 'Liczba osób (miejsc)', 'osób', 'int', 'mail', {13: 4, 42: 6}, {
-    max: 50, hint: 'Wg operatora wycena uruchomienia zależy od liczby osób i stanu lokalu, nie od metrażu.'}),
+    max: 50, hint: 'Wg operatora wycena uruchomienia zależy od liczby osób i stanu lokalu, nie od metrażu. Cztery osoby to parametr przykładu z arkusza operatora; dla lokalu nr 42 (sześć osób) to założenie.'}),
   F('beds', 'start', 'Liczba łóżek', 'szt.', 'int', 'zal', {13: 2, 42: 3}, {max: 50}),
   ...START_ITEMS.flatMap(it => [
     F(it.q, 'start', `${it.label}: ilość`, 'szt.', 'int', 'arkusz', it.dq, {table: 'start', max: 1000}),
@@ -110,18 +110,19 @@ const base = [
   F('decor', 'start', 'Dekoracje', 'zł', 'money', 'mail', 0, {hint: 'Ustalane indywidualnie z właścicielem, bez ceny w mailu.'}),
   F('startDiscount', 'start', 'Rabat na wdrożenie', '%', 'percent', 'mail', 0, {
     chips: [0, 20],
-    hint: 'Mail wspomina o promocji 20% na wdrożenie lokalu; warunki nie są jasne. Do doprecyzowania: jeśli dotyczy wdrożenia, wpisz 20.'}),
+    hint: 'Mail wspomina o promocji 20% na wdrożenie lokalu; warunki nie są jasne. Do doprecyzowania: jeśli dotyczy wdrożenia, wpisz 20. Rabat jest liczony od pozycji arkusza, nie od zakupów z opłatą operatora; skutek obu wariantów widać w „Niejasnościach”.'}),
   F('amort', 'start', 'Rozłożenie kosztu uruchomienia na', 'mies.', 'int', 'zal', 24, {min: 1, max: 240}),
 
   F('taxOn', 'pod', 'Uwzględnij podatek dochodowy', '', 'check', 'zal', true),
   F('taxPct', 'pod', 'Ryczałt od przychodów z najmu', '%', 'percent', 'zal', 8.5, {
-    hint: 'Stan 2026: 8,5% do 100 tys. zł przychodu rocznie i 12,5% powyżej. Od 2027 możliwe zmiany. Wpisz swoją stawkę.'}),
+    hint: 'Art. 12 ust. 1 pkt 4 ustawy o zryczałtowanym podatku dochodowym (tekst z 26.08.2026): 8,5% przychodu do 100 000 zł rocznie i 12,5% od nadwyżki. Kalkulator liczy jedną stawkę; przy przychodzie powyżej progu wpisz średnią.'}),
   F('taxBase', 'pod', 'Podstawa podatku', '', 'select', 'zal', 'rent', {
     options: [['rent', 'czynsz otrzymany (najem lokalu operatorowi)'], ['nights', 'przychód z noclegów netto, przed prowizjami (jeśli to pośrednictwo)']],
     hint: 'Zależy od modelu prawnego umowy. Do potwierdzenia z doradcą podatkowym.'}),
 
   F('ltRent', 'najem', 'Czynsz najmu długoterminowego (netto)', 'zł/mies.', 'money', 'zal', {13: 2300, 42: 3000}),
-  F('ltCost', 'najem', 'Koszty właściciela przy najmie długim', 'zł/mies.', 'money', 'zal', {13: 60, 42: 80}),
+  F('ltCost', 'najem', 'Koszty właściciela przy najmie długim', 'zł/mies.', 'money', 'zal', {13: 60, 42: 80},
+    {hint: 'Przyjęto, że najemca długoterminowy płaci czynsz administracyjny i media, więc właściciel ponosi tylko niewielkie koszty. Wpisz własne.'}),
 
   F('resGross', 'res', 'Kwota rezerwacji brutto', 'zł', 'money', 'mail', 100, {
     hint: 'Przykład z maila: rezerwacja za 100 zł brutto, 15% prowizji portalu, 10% prowizji operatora, VAT 8%.'}),
