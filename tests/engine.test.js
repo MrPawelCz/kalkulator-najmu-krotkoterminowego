@@ -1,267 +1,212 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {defaultsFor, mailExample, quantitiesFor} from '../fields.js';
-import {r2, reservation, monthly, costs, startup, result, breakEvenOccupancy, unclear, validate, SCENARIO_IDS} from '../engine.js';
+import {defaultsFor, EXAMPLES} from '../fields.js';
+import {r2, reservation, monthly, costs, afterCosts, split, effectiveOtaPct, validate} from '../engine.js';
 
-const base13 = () => ({...defaultsFor(13), ...mailExample()});
+const d13 = () => defaultsFor(13);
+const d42 = () => defaultsFor(42);
+const ex = id => ({...d13(), ...EXAMPLES.find(e => e.id === id).values});
 
 function rng(seed) {
   let s = seed;
   return () => (s = (s * 1664525 + 1013904223) % 4294967296) / 4294967296;
 }
 
-test('przykład z maila: 100 zł przez portal daje właścicielowi 69,83 zł', () => {
-  const r = reservation(base13());
-  assert.equal(r.net, 92.59);
+test('zaokrąglanie matematyczne do 0,01', () => {
+  assert.equal(r2(1.005), 1.01);
+  assert.equal(r2(2.675), 2.68);
+  assert.equal(r2(7.4074), 7.41);
+  assert.equal(r2(-1.005), -1.01);
+  assert.equal(r2(0), 0);
+  assert.equal(Object.is(r2(-0.001), -0), false);
+});
+
+test('przykład 1: 100,00 zł przez portal', () => {
+  const r = reservation(ex(1));
+  assert.equal(r.revenue, 100);
   assert.equal(r.vat, 7.41);
-  const ota = r.channels.ota;
-  assert.equal(ota.feeOta, 15);
-  assert.equal(ota.scen.mail.base, 77.59);
-  assert.equal(ota.scen.mail.operatorFee, 7.76);
-  assert.equal(ota.scen.mail.owner, 69.83);
+  assert.equal(r.fee, 15);
+  assert.equal(r.base, 77.59);
+  assert.equal(r.rent, 62.07);
+  assert.equal(r.operator, 15.52);
 });
 
-test('przykład z maila: 100 zł sprzedaży bezpośredniej daje właścicielowi 83,33 zł', () => {
-  const d = reservation(base13()).channels.direct;
-  assert.equal(d.feeOta, 0);
-  assert.equal(d.scen.mail.operatorFee, 9.26);
-  assert.equal(d.scen.mail.owner, 83.33);
+test('przykład 2: 100,00 zł rezerwacja bezpośrednia', () => {
+  const r = reservation(ex(2));
+  assert.equal(r.vat, 7.41);
+  assert.equal(r.fee, 0);
+  assert.equal(r.base, 92.59);
+  assert.equal(r.rent, 74.07);
+  assert.equal(r.operator, 18.52);
 });
 
-test('projekt umowy: 100 zł przez portal i sprzedaż bezpośrednia przy 25%', () => {
-  const r = reservation(base13());
-  assert.equal(r.channels.ota.scen.c1.owner, 63.75);
-  assert.equal(r.channels.ota.scen.c2.owner, 58.19);
-  assert.equal(r.channels.direct.scen.c1.owner, 75);
-  assert.equal(r.channels.direct.scen.c2.owner, 69.44);
+test('przykład 3: 600,00 zł za noclegi i 220,00 zł za sprzątanie, limit 180 zł', () => {
+  const r = reservation(ex(3));
+  assert.equal(r.cleanKept, 180);
+  assert.equal(r.cleanExcess, 40);
+  assert.equal(r.revenue, 640);
+  assert.equal(r.vat, 47.41);
+  assert.equal(r.fee, 0);
+  assert.equal(r.base, 592.59);
+  assert.equal(r.rent, 474.07);
+  assert.equal(r.operator, 118.52);
 });
 
-test('prowizja portalu od netto zamiast od brutto', () => {
-  const r = reservation({...base13(), otaBase: 'net'}).channels.ota;
-  assert.equal(r.feeOta, 13.89);
-  assert.equal(r.scen.mail.owner, r2fix(92.59 - 13.89, 0.1));
-});
-function r2fix(base, pct) { const fee = Math.round((pct * base + Number.EPSILON) * 100) / 100; return Math.round((base - fee + Number.EPSILON) * 100) / 100; }
-
-test('pojedyncza rezerwacja: podział sumuje się do kwoty brutto w każdym scenariuszu', () => {
+test('rezerwacja: tożsamość przychód = VAT + prowizja + operator + Czynsz co do grosza', () => {
   const rand = rng(7);
-  for (let i = 0; i < 300; i++) {
-    const inp = {...base13(), otaPct: rand() * 25, payPct: rand() * 3, ownPct: rand() * 12, mailPct: rand() * 30,
-      contractPct: rand() * 40, vatNights: [0, 5, 8, 23][Math.floor(rand() * 4)], otaBase: rand() > 0.5 ? 'gross' : 'net'};
-    const r = reservation(inp, Math.round(rand() * 100000) / 100);
-    for (const ch of Object.values(r.channels)) for (const id of SCENARIO_IDS) {
-      assert.ok(Math.abs(ch.scen[id].identity) < 1e-9, `${id}: ${ch.scen[id].identity}`);
-    }
+  for (let i = 0; i < 500; i++) {
+    const inp = {...d13(), otaPct: rand() * 25, otaCap: rand() * 25, opShare: rand() * 60, vat: [0, 5, 8, 23][Math.floor(rand() * 4)],
+      cleanLimit: rand() * 300};
+    const r = reservation(inp, {gross: Math.round(rand() * 100000) / 100, clean: Math.round(rand() * 50000) / 100,
+      channel: rand() > 0.5 ? 'ota' : 'direct'});
+    assert.ok(Math.abs(r.identity) <= 0.01, `identity ${r.identity}`);
   }
 });
 
-test('miesięcznie: podział sumuje się do przychodu w każdym scenariuszu', () => {
+test('limit prowizji: otaPct 18 liczy jak 15, różnicę pokazuje feeOver', () => {
+  const r = reservation({...ex(1), otaPct: 18});
+  assert.equal(effectiveOtaPct({otaPct: 18, otaCap: 15}), 15);
+  assert.equal(r.feeCharged, 18);
+  assert.equal(r.fee, 15);
+  assert.equal(r.feeOver, 3);
+  assert.equal(r.base, 77.59);
+  assert.equal(r.rent, 62.07);
+  const m18 = monthly({...d13(), otaPct: 18});
+  const m15 = monthly({...d13(), otaPct: 15});
+  assert.equal(m18.rent, m15.rent);
+  const m12 = monthly({...d13(), otaPct: 12});
+  assert.ok(m12.rent > m15.rent);
+});
+
+test('opłata za sprzątanie do limitu nie wchodzi do przychodu, ponad limit tak', () => {
+  const at = reservation({...ex(2), resClean: 180});
+  assert.equal(at.revenue, 100);
+  const below = reservation({...ex(2), resClean: 50});
+  assert.equal(below.revenue, 100);
+  const over = reservation({...ex(2), resClean: 230});
+  assert.equal(over.revenue, 150);
+  const lim = reservation({...ex(2), resClean: 100, cleanLimit: 60});
+  assert.equal(lim.revenue, 140);
+});
+
+test('model miesięczny, lokal 13: wartości kontrolne', () => {
+  const m = monthly(d13());
+  assert.equal(r2(m.revenue), 5018.75);
+  assert.equal(r2(m.vat), 371.76);
+  assert.equal(r2(m.fees), 602.25);
+  assert.equal(r2(m.base), 4044.74);
+  assert.equal(r2(m.rent), 3235.79);
+  assert.equal(r2(m.operator), 808.95);
+  assert.equal(m.floored, false);
+});
+
+test('model miesięczny, lokal 42: wartości kontrolne', () => {
+  const m = monthly(d42());
+  assert.equal(r2(m.revenue), 6691.67);
+  assert.equal(r2(m.vat), 495.68);
+  assert.equal(r2(m.fees), 803);
+  assert.equal(r2(m.base), 5392.99);
+  assert.equal(r2(m.rent), 4314.39);
+  assert.equal(r2(m.operator), 1078.6);
+});
+
+test('model miesięczny: tożsamość przychód = VAT + prowizje + operator + Czynsz na losowych danych', () => {
   const rand = rng(11);
-  for (let i = 0; i < 300; i++) {
-    const inp = {...defaultsFor(rand() > 0.5 ? 13 : 42), adr: 100 + rand() * 500, occ: rand() * 100, direct: rand() * 100,
-      stay: 1 + rand() * 6, otaPct: rand() * 20, payPct: rand() * 3, ownPct: rand() * 12, mailPct: rand() * 30,
-      contractPct: rand() * 40, minRent: 0, cleanInBase: rand() > 0.5, otaBase: rand() > 0.5 ? 'gross' : 'net'};
+  for (let i = 0; i < 500; i++) {
+    const inp = {...d13(), adr: rand() * 1500, occ: rand() * 100, stay: 0.5 + rand() * 10, direct: rand() * 100,
+      otaPct: rand() * 25, otaCap: rand() * 25, cleanFee: rand() * 400, cleanLimit: rand() * 300, opShare: rand() * 60,
+      vat: [0, 5, 8, 23][Math.floor(rand() * 4)], minRent: rand() * 10};
     const m = monthly(inp);
-    for (const id of SCENARIO_IDS) assert.ok(Math.abs(m.scenarios[id].identity) < 1e-6, `${id}: ${m.scenarios[id].identity}`);
+    assert.ok(Math.abs(m.identity) < 1e-8, `identity ${m.identity}`);
+    assert.ok(m.rent >= inp.minRent - 1e-9);
   }
 });
 
-test('kwota dla właściciela rośnie liniowo z ceną doby (bez minimum czynszu)', () => {
-  const inp = {...defaultsFor(13), minRent: 0};
-  const a = monthly(inp), b = monthly({...inp, adr: inp.adr * 2});
-  for (const id of SCENARIO_IDS) assert.ok(Math.abs(b.scenarios[id].owner - 2 * a.scenarios[id].owner) < 1e-6);
+test('model miesięczny: zgodny z rezerwacją (jedna rezerwacja portalowa, bez sprzątania ponad limit)', () => {
+  const nights = 10;
+  const inp = {...d13(), occ: nights / (365 / 12) * 100, direct: 0, adr: 100};
+  const m = monthly(inp);
+  const r = reservation(inp, {gross: 1000, clean: 0, channel: 'ota'});
+  assert.ok(Math.abs(m.rent - r.rent) < 0.02, `${m.rent} vs ${r.rent}`);
+  assert.ok(Math.abs(m.operator - r.operator) < 0.02);
 });
 
-test('miesięczny model zgadza się z sumą pojedynczych rezerwacji (jedna doba, tylko portal zewnętrzny)', () => {
-  const inp = {...defaultsFor(13), ...mailExample(), direct: 0, stay: 1, adr: 300, minRent: 0};
-  const m = monthly(inp), r = reservation(inp, 300).channels.ota;
-  for (const id of SCENARIO_IDS) {
-    assert.ok(Math.abs(m.scenarios[id].owner - m.nights * r.scen[id].owner) < m.nights * 0.015, id);
+test('rezerwacje bezpośrednie nie płacą prowizji portalu', () => {
+  const all = monthly({...d13(), direct: 100});
+  assert.equal(all.fees, 0);
+  const none = monthly({...d13(), direct: 0});
+  assert.ok(none.fees > 0);
+  assert.ok(all.rent > none.rent);
+});
+
+test('opłata za sprzątanie ponad limit zwiększa przychód miesięczny o część ponad limit razy liczbę pobytów', () => {
+  const base = monthly(d13());
+  const over = monthly({...d13(), cleanFee: 230});
+  assert.ok(Math.abs(over.cleanExcess - 50 * over.stays) < 1e-9);
+  assert.ok(Math.abs(over.revenue - base.revenue - 50 * base.stays) < 1e-9);
+  assert.equal(monthly({...d13(), cleanFee: 100}).revenue, base.revenue);
+});
+
+test('minimalny Czynsz miesięczny: bez rezerwacji 1 zł, operator dopłaca', () => {
+  const m = monthly({...d13(), occ: 0});
+  assert.equal(m.revenue, 0);
+  assert.equal(m.rent, 1);
+  assert.equal(m.floored, true);
+  assert.equal(m.operator, -1);
+  assert.equal(split(m), null);
+  const m5 = monthly({...d13(), occ: 0, minRent: 5});
+  assert.equal(m5.rent, 5);
+  assert.equal(monthly(d13()).floored, false);
+});
+
+test('podział każdych 100 zł sumuje się do 100', () => {
+  const s = split(monthly(d13()));
+  assert.ok(Math.abs(s.vat + s.portal + s.operator + s.owner - 100) < 1e-9);
+  assert.ok(Math.abs(s.vat - 8 / 108 * 100) < 1e-9);
+  assert.ok(s.owner > s.operator && s.operator > 0);
+});
+
+test('koszty właściciela i uruchomienie: Czynsz po kosztach', () => {
+  const c = costs(d13());
+  assert.equal(c.running, 730);
+  assert.ok(Math.abs(c.startPerMonth - 6430 / 24) < 1e-9);
+  const a = afterCosts(d13());
+  assert.ok(Math.abs(a.net - (monthly(d13()).rent - 730 - 6430 / 24)) < 1e-9);
+  assert.equal(r2(afterCosts(d42()).net), 3002.97);
+  const free = afterCosts({...d13(), costAdmin: 0, costOther: 0, costRepairs: 0, costTax: 0, startCost: 0});
+  assert.equal(free.net, free.rent);
+});
+
+test('koszt uruchomienia w średniej z roku: rozłożenie krótsze niż 12 miesięcy liczy się raz', () => {
+  for (const startMonths of [1, 6, 12, 24, 120]) {
+    const inp = {...d13(), startMonths};
+    const yearStart = costs(inp).startPerMonth * 12;
+    assert.ok(Math.abs(yearStart - inp.startCost * Math.min(12, startMonths) / startMonths) < 1e-9, `startMonths ${startMonths}`);
+    assert.ok(yearStart <= inp.startCost + 1e-9, `startMonths ${startMonths}: w roku nie więcej niż cały koszt`);
+    const a = afterCosts(inp);
+    assert.ok(Math.abs(12 * a.net - (12 * (a.rent - a.running) - yearStart)) < 1e-6);
   }
+  assert.ok(Math.abs(costs({...d13(), startMonths: 6}).startPerMonth * 12 - 6430) < 1e-9);
 });
 
-test('minimum czynszu: bez rezerwacji właściciel dostaje 1 zł wg umowy, 0 zł wg maila', () => {
-  const m = monthly({...defaultsFor(13), occ: 0});
-  assert.equal(m.scenarios.c1.owner, 1);
-  assert.equal(m.scenarios.c2.owner, 1);
-  assert.equal(m.scenarios.mail.owner, 0);
-  assert.equal(m.scenarios.c1.floored, true);
-  assert.equal(monthly(defaultsFor(13)).scenarios.c2.floored, false);
-});
-
-test('VAT od czynszu: tylko informacyjnie, kwota właściciela bez zmian', () => {
-  const off = monthly(defaultsFor(13)).scenarios.c2;
-  const on = monthly({...defaultsFor(13), vatPayer: true}).scenarios.c2;
-  assert.equal(off.rentVat, 0);
-  assert.ok(Math.abs(on.rentVat - on.owner * 0.08) < 1e-9);
-  assert.equal(on.owner, off.owner);
-  assert.ok(Math.abs(on.rentGross - on.owner * 1.08) < 1e-9);
-});
-
-test('opłata za sprzątanie wchodzi do podstawy tylko na życzenie', () => {
-  const inp = defaultsFor(13);
-  const a = monthly(inp), b = monthly({...inp, cleanInBase: true});
-  assert.ok(Math.abs(b.scenarios.c1.base - a.scenarios.c1.base - a.cleanGross) < 1e-9);
-  assert.ok(Math.abs(b.scenarios.c2.base - a.scenarios.c2.base - a.cleanNet) < 1e-9);
-  assert.ok(Math.abs(b.scenarios.mail.base - a.scenarios.mail.base - a.cleanNet) < 1e-9);
-});
-
-test('kolejność dla danych domyślnych: mail, potem umowa brutto, potem umowa netto', () => {
-  const s = monthly(defaultsFor(13)).scenarios;
-  assert.ok(s.mail.owner > s.c1.owner && s.c1.owner > s.c2.owner);
-});
-
-test('podatek od nieruchomości: stawka mieszkalna i dla działalności', () => {
-  const inp = defaultsFor(13);
-  const rate = key => costs(inp).items.find(i => i.id === key).amount;
-  assert.equal(rate('proptax'), 48 * 1.25 / 12);
-  const biz = costs({...inp, taxBizOn: true});
-  assert.equal(biz.items.find(i => i.id === 'proptax').amount, 48 * 35 / 12);
-  assert.equal(biz.propTaxExtra, 48 * (35 - 1.25) / 12);
-});
-
-test('uruchomienie: arkusz 4030 zł dla 4 osób i 2 łóżek, zakupy z opłatą 20%', () => {
-  const st13 = startup(defaultsFor(13));
-  assert.equal(st13.sheetTotal, 4030);
-  assert.equal(st13.purchases, 2000);
-  assert.equal(st13.purchaseFee, 400);
-  assert.equal(st13.total, 6430);
-  assert.ok(Math.abs(st13.perMonth - 6430 / 24) < 1e-9);
-  assert.equal(startup(defaultsFor(42)).sheetTotal, 5650);
-  assert.equal(startup(defaultsFor(42)).total, 9250);
-  assert.equal(startup({...defaultsFor(13), startDiscount: 20}).total, 6430 - 806);
-});
-
-test('ilości z arkusza zgadzają się z liczbą osób i łóżek w lokalach', () => {
-  for (const [lokal, persons, beds] of [[13, 4, 2], [42, 6, 3]]) {
-    const d = defaultsFor(lokal), q = quantitiesFor(persons, beds);
-    assert.equal(d.persons, persons);
-    assert.equal(d.beds, beds);
-    for (const key of Object.keys(q)) assert.equal(d[key], q[key], `${lokal} ${key}`);
-  }
-});
-
-test('wynik właściciela: koszty, uruchomienie i ryczałt', () => {
-  const inp = defaultsFor(13), m = monthly(inp), r = result(inp, 'c2', m);
-  assert.equal(r.owner, m.scenarios.c2.owner);
-  assert.ok(Math.abs(r.preTax - (r.owner - costs(inp).total - startup(inp).perMonth)) < 1e-9);
-  assert.ok(Math.abs(r.tax - 0.085 * r.owner) < 1e-9);
-  assert.ok(Math.abs(r.afterTax - (r.preTax - r.tax)) < 1e-9);
-  assert.ok(Math.abs(result({...inp, taxBase: 'nights'}, 'c2', m).tax - 0.085 * m.net) < 1e-9);
-  assert.equal(result({...inp, taxOn: false}, 'c2', m).tax, 0);
-  assert.ok(Math.abs(r.longNet - (2300 - 60 - 0.085 * 2300)) < 1e-9);
-});
-
-test('obłożenie progowe: wynik przed podatkiem wynosi tam zero', () => {
-  const inp = defaultsFor(13);
-  for (const id of SCENARIO_IDS) {
-    const occ = breakEvenOccupancy(inp, id);
-    assert.ok(occ > 0 && occ < 100, `${id}: ${occ}`);
-    assert.ok(Math.abs(result({...inp, occ}, id).preTax) < 0.01);
-  }
-  assert.equal(breakEvenOccupancy({...inp, admin: 1e6}, 'c2'), null);
-  assert.equal(breakEvenOccupancy({...inp, admin: 0, utilities: 0, net: 0, waste: 0, insurance: 0, repairs: 0, supplies: 0, kitchen: 0, startDiscount: 100, pClean: 0, pBed: 0, pSheet: 0, pTowel: 0, pDuvet: 0, pFoot: 0, pKey: 0, taxResid: 0}, 'c2'), 0);
-});
-
-test('walidacja danych', () => {
-  assert.deepEqual(validate(defaultsFor(13)), []);
-  assert.deepEqual(validate(defaultsFor(42)), []);
-  assert.equal(validate({...defaultsFor(13), occ: 120})[0].key, 'occ');
-  assert.equal(validate({...defaultsFor(13), occ: NaN})[0].key, 'occ');
-  assert.equal(validate({...defaultsFor(13), otaBase: 'x'})[0].key, 'otaBase');
-  assert.equal(validate({...defaultsFor(13), vatPayer: 'tak'})[0].key, 'vatPayer');
-  assert.equal(validate({...defaultsFor(13), amort: 0})[0].key, 'amort');
-  assert.equal(validate({...defaultsFor(13), persons: 2.5})[0].key, 'persons');
-});
-
-test('lista niejasności ma skończone wartości i właściwe znaki', () => {
-  for (const id of SCENARIO_IDS) {
-    const list = unclear(defaultsFor(42), id);
-    assert.equal(list.length, 13);
-    for (const u of list) assert.ok(Number.isFinite(u.value), `${id} ${u.id}`);
-  }
-  const u = Object.fromEntries(unclear(defaultsFor(13)).map(x => [x.id, x]));
-  assert.ok(u.podstawa.value < 0, 'brutto daje więcej niż netto');
-  assert.ok(u.stawka.value < 0, 'przykład z maila daje więcej niż umowa');
-  assert.ok(u.promocja.value > 0, '20% daje więcej niż 25%');
-  assert.ok(u.nieruchomosc.value < 0);
-});
-
-test('udział 20% w umowie z podstawą netto: 62,07 zł przez portal i 74,07 zł przy sprzedaży bezpośredniej', () => {
-  const r = reservation({...base13(), contractPct: 20});
-  assert.equal(r.channels.ota.scen.c2.owner, 62.07);
-  assert.equal(r.channels.direct.scen.c2.owner, 74.07);
-});
-
-test('udział operatora liczony wprost zgadza się z resztą po VAT, portalach i właścicielu', () => {
-  const rand = rng(3);
-  for (let i = 0; i < 300; i++) {
-    const inp = {...base13(), otaPct: rand() * 25, payPct: rand() * 3, ownPct: rand() * 12, mailPct: rand() * 30,
-      contractPct: rand() * 40, vatNights: [0, 5, 8, 23][Math.floor(rand() * 4)], otaBase: rand() > 0.5 ? 'gross' : 'net'};
-    const r = reservation(inp, Math.round(rand() * 100000) / 100);
-    for (const ch of Object.values(r.channels)) for (const id of SCENARIO_IDS) {
-      const s = ch.scen[id];
-      assert.equal(s.operatorKeeps, r2(r.net - ch.feeOta - ch.feePay - s.owner), `${id} ${i}`);
-    }
-  }
-  const direct = reservation({...base13(), ownPct: 3}).channels.direct.scen;
-  assert.equal(direct.c1.operatorKeeps, r2(direct.c1.operatorFee + 3 - 7.41), 'przy podstawie brutto VAT wypada z puli operatora');
-  assert.equal(direct.mail.operatorKeeps, r2(direct.mail.operatorFee + 3));
-});
-
-test('scenariusz z maila nie ma dolnej granicy: rezerwacja i miesiąc dają ten sam ujemny wynik', () => {
-  const inp = {...base13(), otaPct: 100, payPct: 20, direct: 0, stay: 1, minRent: 0};
-  const m = monthly(inp), r = reservation(inp, inp.adr).channels.ota.scen.mail;
-  assert.ok(r.owner < 0 && m.scenarios.mail.owner < 0);
-  assert.ok(Math.abs(m.scenarios.mail.owner - m.nights * r.owner) < m.nights * 0.015);
-});
-
-test('bez przychodu: minimum umowy płaci operator, udział w płatnościach gości nie dzieli przez zero', () => {
-  const m = monthly({...defaultsFor(13), occ: 0});
-  assert.equal(m.potGross, 0);
-  assert.equal(m.scenarios.c1.operatorKeeps, -1);
-  assert.equal(m.scenarios.c1.ownerShare, 0);
-  assert.ok(SCENARIO_IDS.every(id => Number.isFinite(m.scenarios[id].operatorKeeps)));
-});
-
-test('udział w płatnościach gości liczony od całości wpłat, także z opłatą za sprzątanie w podstawie', () => {
-  const m = monthly({...defaultsFor(13), cleanInBase: true});
-  for (const id of SCENARIO_IDS) assert.ok(Math.abs(m.scenarios[id].ownerShare - m.scenarios[id].owner / m.potGross) < 1e-12);
-  assert.ok(m.potGross > m.gross);
-});
-
-test('rabat na wdrożenie dotyczy pozycji arkusza, nie zakupów z opłatą operatora', () => {
-  const st = startup({...defaultsFor(13), startDiscount: 20});
-  assert.ok(Math.abs(st.discount - 806) < 1e-9);
-  assert.ok(Math.abs(st.total - 5624) < 1e-9);
-  assert.equal(st.totalBeforeDiscount, 6430);
-});
-
-test('niejasności: pozycje porównujące sposoby liczenia nie zależą od wybranego sposobu', () => {
-  const pick = id => Object.fromEntries(unclear(defaultsFor(13), id).map(x => [x.id, x.value]));
-  const a = pick('mail'), b = pick('c1'), c = pick('c2');
-  for (const key of ['stawka', 'promocja', 'podstawa', 'procent']) {
-    assert.equal(a[key], b[key], key);
-    assert.equal(b[key], c[key], key);
-  }
-});
-
-test('niejasności: pozycja 75 czy 70% kosztuje 5 punktów podstawy umowy z podstawą netto', () => {
-  const inp = defaultsFor(13), m = monthly(inp);
-  const u = Object.fromEntries(unclear(inp).map(x => [x.id, x]));
-  assert.ok(Math.abs(u.procent.value + 0.05 * m.scenarios.c2.base) < 1e-9);
-  assert.ok(Math.abs(u.promocja.value - 0.05 * m.scenarios.c2.base) < 1e-9);
-  const word = Object.fromEntries(unclear({...inp, contractPct: 30}).map(x => [x.id, x]));
-  assert.ok(word.procent.value > 0, 'po wpisaniu 30% skutek jest odwrotny');
-});
-
-test('niejasności: pozycje reagują na stan formularza', () => {
-  const inp = defaultsFor(13);
-  const pick = patch => Object.fromEntries(unclear({...inp, ...patch}).map(x => [x.id, x]));
-  assert.equal(pick({}).minimum.title, 'Minimalny czynsz 1 zł');
-  assert.equal(pick({minRent: 50}).minimum.title, 'Minimalny czynsz 50 zł');
-  assert.equal(pick({minRent: 0.5}).minimum.title, 'Minimalny czynsz 0,5 zł');
-  assert.ok(pick({}).model.value < 0 && pick({}).nieruchomosc.value < 0);
-  const chosen = pick({taxBase: 'nights', taxBizOn: true});
-  assert.ok(chosen.model.value > 0 && chosen.nieruchomosc.value > 0, 'po wybraniu odpowiedzi skutek jest odwrotny');
+test('walidacja: wartości domyślne i skrajne', () => {
+  assert.deepEqual(validate(d13()), []);
+  assert.deepEqual(validate(d42()), []);
+  const bad = (patch, key) => assert.ok(validate({...d13(), ...patch}).some(e => e.key === key), `${key}: ${JSON.stringify(patch)}`);
+  const good = patch => assert.deepEqual(validate({...d13(), ...patch}), [], JSON.stringify(patch));
+  bad({adr: -1}, 'adr'); bad({adr: 10001}, 'adr'); good({adr: 10000});
+  bad({occ: 101}, 'occ'); good({occ: 100});
+  bad({stay: 0.9}, 'stay'); bad({stay: 366}, 'stay'); good({stay: 1});
+  bad({direct: -1}, 'direct');
+  bad({otaPct: 101}, 'otaPct');
+  bad({cleanFee: 5001}, 'cleanFee');
+  bad({opShare: 101}, 'opShare');
+  bad({vat: 9}, 'vat'); good({vat: 8}); good({vat: 0});
+  bad({otaCap: -1}, 'otaCap');
+  bad({cleanLimit: 5001}, 'cleanLimit');
+  bad({minRent: 1001}, 'minRent');
+  bad({costAdmin: 100001}, 'costAdmin');
+  bad({startMonths: 0}, 'startMonths'); bad({startMonths: 121}, 'startMonths'); bad({startMonths: 2.5}, 'startMonths'); good({startMonths: 120});
+  bad({adr: NaN}, 'adr'); bad({occ: Infinity}, 'occ'); bad({adr: '300'}, 'adr');
+  bad({resChannel: 'inny'}, 'resChannel');
 });
